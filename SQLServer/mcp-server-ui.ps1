@@ -75,8 +75,9 @@ function Show-MainMenu {
     Write-Host "3. Test Connection" -ForegroundColor White
     Write-Host "4. View Configuration" -ForegroundColor White
     Write-Host "5. Update Database Credentials" -ForegroundColor White
-    Write-Host "6. Switch Windows User" -ForegroundColor Yellow
-    Write-Host "7. Exit" -ForegroundColor White
+    Write-Host "6. Validate Table Schema" -ForegroundColor Cyan
+    Write-Host "7. Switch Windows User" -ForegroundColor Yellow
+    Write-Host "8. Exit" -ForegroundColor White
     Write-Host ""
 }
 
@@ -679,13 +680,103 @@ function Update-UserCredentials {
     Read-Host "Press Enter to continue"
 }
 
+function Validate-TableSchema {
+    Show-Banner
+    Write-Host "Validate Table Schema" -ForegroundColor Green
+    Write-Host "------------------------------------------------------------------------" -ForegroundColor Gray
+
+    if (-not $script:SessionConfig.Server -or -not $script:SessionConfig.Database) {
+        Write-Host "[ERROR] Database credentials not configured. Run Setup first." -ForegroundColor Red
+        Read-Host "Press Enter to continue"
+        return
+    }
+
+    Write-Host ""
+    Write-Host "[*] Validating schema for: $($script:SessionConfig.Database)" -ForegroundColor Cyan
+    Write-Host ""
+
+    $query = @"
+SELECT
+    t.TABLE_SCHEMA,
+    t.TABLE_NAME,
+    COUNT(c.COLUMN_NAME) as ColumnCount,
+    STRING_AGG(c.COLUMN_NAME + ' (' + c.DATA_TYPE + ')', ', ') as Columns
+FROM INFORMATION_SCHEMA.TABLES t
+LEFT JOIN INFORMATION_SCHEMA.COLUMNS c ON t.TABLE_NAME = c.TABLE_NAME AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+WHERE t.TABLE_TYPE = 'BASE TABLE'
+GROUP BY t.TABLE_SCHEMA, t.TABLE_NAME
+ORDER BY t.TABLE_NAME
+"@
+
+    try {
+        $output = sqlcmd -S $script:SessionConfig.Server -d $script:SessionConfig.Database -E -Q $query 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[ERROR] Failed to validate schema" -ForegroundColor Red
+            Read-Host "Press Enter to continue"
+            return
+        }
+
+        $lines = $output | Where-Object { $_ -and $_ -notmatch "^-+$" }
+        $tableCount = 0
+        $issuesFound = 0
+
+        Write-Host "Validation Results:" -ForegroundColor Green
+        Write-Host ""
+
+        foreach ($line in $lines) {
+            if ($line -like "*TABLE_SCHEMA*") {
+                continue
+            }
+
+            $parts = $line.Trim().Split([char[]]@('|'), [System.StringSplitOptions]::RemoveEmptyEntries)
+            if ($parts.Count -ge 3) {
+                $tableCount++
+                $schema = $parts[0].Trim()
+                $tableName = $parts[1].Trim()
+                $columnCount = $parts[2].Trim()
+
+                if ([string]::IsNullOrWhiteSpace($columnCount) -or $columnCount -eq "0") {
+                    Write-Host "  ⚠️  $schema.$tableName - NO COLUMNS (Issue)" -ForegroundColor Yellow
+                    $issuesFound++
+                } else {
+                    Write-Host "  ✓ $schema.$tableName - $columnCount columns" -ForegroundColor Green
+                }
+
+                if ($tableCount % 50 -eq 0) {
+                    Write-Host "  ... validated $tableCount tables ..." -ForegroundColor Gray
+                }
+            }
+        }
+
+        Write-Host ""
+        Write-Host "Summary:" -ForegroundColor Cyan
+        Write-Host "  Total tables: $tableCount" -ForegroundColor White
+        Write-Host "  Tables with issues: $issuesFound" -ForegroundColor $(if ($issuesFound -gt 0) { "Yellow" } else { "Green" })
+        Write-Host ""
+
+        if ($issuesFound -gt 0) {
+            Write-Host "[!] WARNING: Found tables with potential issues" -ForegroundColor Yellow
+            Write-Host "    These tables may not work properly with MCP" -ForegroundColor Yellow
+        } else {
+            Write-Host "[OK] All tables have valid schema" -ForegroundColor Green
+        }
+
+    } catch {
+        Write-Host "[ERROR] Validation failed: $_" -ForegroundColor Red
+    }
+
+    Write-Host ""
+    Read-Host "Press Enter to continue"
+}
+
 # Load saved configuration on startup
 Load-SessionConfig | Out-Null
 
 # Main Loop
 while ($true) {
     Show-MainMenu
-    $choice = Read-Host "Select option (1-7)"
+    $choice = Read-Host "Select option (1-8)"
 
     switch ($choice) {
         "1" { Setup-MCP }
@@ -693,8 +784,9 @@ while ($true) {
         "3" { Test-MCPConnection }
         "4" { View-Configuration }
         "5" { Update-UserCredentials }
-        "6" { Switch-WindowsUser }
-        "7" {
+        "6" { Validate-TableSchema }
+        "7" { Switch-WindowsUser }
+        "8" {
             Write-Host "Goodbye!" -ForegroundColor Cyan
             exit
         }
