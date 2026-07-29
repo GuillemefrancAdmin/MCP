@@ -553,11 +553,23 @@ function Start-MCPServer {
     Write-Host ""
 
     try {
-        dab start --mcp-stdio
+        Write-Host "[*] Launching: dab start --mcp-stdio" -ForegroundColor Gray
+        & dab start --mcp-stdio 2>&1 | ForEach-Object {
+            Write-Host $_
+        }
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ""
+            Write-Host "[ERROR] Server exited with code $LASTEXITCODE" -ForegroundColor Red
+        }
     }
     catch {
         Write-Host "[ERROR] Failed to start server: $_" -ForegroundColor Red
     }
+
+    Write-Host ""
+    Write-Host "[*] Server stopped. Returning to main menu..." -ForegroundColor Yellow
+    Read-Host "Press Enter to continue"
 }
 
 function Check-MCPStatus {
