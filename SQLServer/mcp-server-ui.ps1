@@ -3,8 +3,16 @@
 
 $ErrorActionPreference = "SilentlyContinue"
 
-# Configuration file for saving user preferences
-$script:ConfigFile = ".\mcp-config.json"
+# Get script directory (works regardless of current working directory)
+$script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $script:ScriptDir) {
+    $script:ScriptDir = Get-Location
+}
+
+# Configuration file for saving user preferences (absolute path)
+$script:ConfigFile = Join-Path $script:ScriptDir "mcp-config.json"
+$script:DABConfigFile = Join-Path $script:ScriptDir "dab-config.json"
+
 $script:SessionConfig = @{
     Server     = ""
     Database   = ""
@@ -243,10 +251,18 @@ function Discover-Tables {
     $query = "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME"
 
     try {
-        $output = sqlcmd -S $ConnectionInfo.Server -d $ConnectionInfo.Database -E -Q $query 2>&1
+        Write-Host "DEBUG: Server: $($ConnectionInfo.Server)" -ForegroundColor Gray
+        Write-Host "DEBUG: Database: $($ConnectionInfo.Database)" -ForegroundColor Gray
+
+        $output = & sqlcmd -S $ConnectionInfo.Server -d $ConnectionInfo.Database -E -Q $query
+        Write-Host "DEBUG: Exit code: $LASTEXITCODE" -ForegroundColor Gray
+        Write-Host "DEBUG: Output lines: $($output.Count)" -ForegroundColor Gray
 
         if ($LASTEXITCODE -ne 0) {
-            throw "sqlcmd failed"
+            Write-Host ""
+            Write-Host "DEBUG: Full output:" -ForegroundColor Red
+            $output | ForEach-Object { Write-Host "  $_" }
+            throw "sqlcmd failed with exit code $LASTEXITCODE"
         }
 
         $lines = $output | Where-Object { $_ -and $_ -notmatch "^-+$" }
@@ -347,7 +363,7 @@ function Setup-MCP {
     }
 
     $connectionInfo = Get-ConnectionString
-    $configPath = "./dab-config.json"
+    $configPath = "$script:DABConfigFile"
 
     if (-not (Initialize-DABConfig -ConfigPath $configPath -ConnectionInfo $connectionInfo)) {
         Read-Host "Press Enter to continue"
@@ -382,7 +398,7 @@ function Setup-MCP {
                 command = "dab"
                 args    = @("start", "--mcp-stdio")
                 env     = @{
-                    DAB_CONFIG = "./dab-config.json"
+                    DAB_CONFIG = "$script:DABConfigFile"
                 }
             }
         }
@@ -428,7 +444,7 @@ function Test-MCPConnection {
     Write-Host "Testing Connection" -ForegroundColor Green
     Write-Host "------------------------------------------------------------------------" -ForegroundColor Gray
 
-    if (-not (Test-Path ".\dab-config.json")) {
+    if (-not (Test-Path $script:DABConfigFile)) {
         Write-Host "[ERROR] Configuration file not found. Run Setup first." -ForegroundColor Red
         Read-Host "Press Enter to continue"
         return
