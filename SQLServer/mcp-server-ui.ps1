@@ -275,8 +275,12 @@ function Add-TablesToConfig {
 
     Write-Host ""
     Write-Host "[*] Adding tables to configuration..." -ForegroundColor Cyan
+    Write-Host ""
+
     $addedCount = 0
     $skippedCount = 0
+    $startTime = Get-Date
+    $totalTables = $Tables.Count
 
     foreach ($table in $Tables) {
         try {
@@ -287,7 +291,19 @@ function Add-TablesToConfig {
                 --config $ConfigPath | Out-Null
 
             $addedCount++
-            Write-Progress -Activity "Adding Tables" -CurrentOperation $table.Name -PercentComplete (($addedCount / $Tables.Count) * 100)
+
+            $percentComplete = [math]::Round(($addedCount / $totalTables) * 100)
+            $elapsedTime = (Get-Date) - $startTime
+            $avgTimePerTable = $elapsedTime.TotalSeconds / $addedCount
+            $remainingTables = $totalTables - $addedCount
+            $estimatedRemaining = [math]::Round($avgTimePerTable * $remainingTables)
+
+            $barLength = 30
+            $filledLength = [math]::Round($percentComplete / 100 * $barLength)
+            $progressBar = "=" * $filledLength + " " * ($barLength - $filledLength)
+
+            Write-Host "`r  [$progressBar] $percentComplete% | $addedCount/$totalTables | ETA: ${estimatedRemaining}s" -NoNewline -ForegroundColor Cyan
+
         }
         catch {
             $skippedCount++
@@ -295,9 +311,13 @@ function Add-TablesToConfig {
     }
 
     Write-Host ""
+    Write-Host ""
     Write-Host "[OK] Configuration Complete!" -ForegroundColor Green
     Write-Host "    Tables added:  $addedCount" -ForegroundColor Green
     Write-Host "    Tables skipped: $skippedCount" -ForegroundColor Yellow
+
+    $totalTime = [math]::Round(((Get-Date) - $startTime).TotalSeconds)
+    Write-Host "    Total time: ${totalTime}s" -ForegroundColor Gray
 }
 
 function Setup-MCP {
