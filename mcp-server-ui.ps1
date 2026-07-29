@@ -405,8 +405,9 @@ function Setup-MCP {
         # Validate the existing config
         Write-Host "[*] Validating configuration..." -ForegroundColor Cyan
         $validation = dab validate --config $script:DABConfigFile 2>&1
+        $validationSuccess = $validation | Select-String -Pattern "config satisfies the schema requirements" -Quiet
 
-        if ($LASTEXITCODE -eq 0) {
+        if ($validationSuccess) {
             Write-Host "[OK] Configuration is VALID" -ForegroundColor Green
             Write-Host ""
 
