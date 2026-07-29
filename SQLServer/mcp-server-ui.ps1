@@ -251,10 +251,26 @@ function Discover-Tables {
 
         $lines = $output | Where-Object { $_ -and $_ -notmatch "^-+$" }
         $tables = @()
+        $skipHeader = $true
 
         foreach ($line in $lines) {
-            if ($line -match "^\s*(\w+)\s+(\w+)\s*$") {
-                $tables += @{ Schema = $matches[1]; Name = $matches[2] }
+            # Skip header line (contains TABLE_SCHEMA and TABLE_NAME)
+            if ($skipHeader -and $line -like "*TABLE_SCHEMA*") {
+                $skipHeader = $false
+                continue
+            }
+
+            # Skip empty lines
+            if ([string]::IsNullOrWhiteSpace($line)) {
+                continue
+            }
+
+            # Parse line: schema name is first word, table name is last word
+            $parts = $line.Trim().Split([char[]]@(' '), [System.StringSplitOptions]::RemoveEmptyEntries)
+            if ($parts.Count -ge 2) {
+                $schema = $parts[0]
+                $tableName = $parts[-1]  # Get last element
+                $tables += @{ Schema = $schema; Name = $tableName }
             }
         }
 
