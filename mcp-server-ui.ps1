@@ -554,17 +554,36 @@ function Start-MCPServer {
 
     try {
         Write-Host "[*] Launching: dab start --mcp-stdio" -ForegroundColor Gray
-        & dab start --mcp-stdio 2>&1 | ForEach-Object {
-            Write-Host $_
+        Write-Host ""
+
+        $output = & dab start --mcp-stdio 2>&1
+        $exitCode = $LASTEXITCODE
+
+        Write-Host "Exit Code: $exitCode" -ForegroundColor Cyan
+        Write-Host ""
+
+        if ($output) {
+            Write-Host "=== Server Output ===" -ForegroundColor Green
+            $output | ForEach-Object {
+                Write-Host $_
+            }
+            Write-Host "=== End Output ===" -ForegroundColor Green
+        } else {
+            Write-Host "[WARN] No output from dab start command" -ForegroundColor Yellow
+            Write-Host "Server may be running in background. Check status with option 3." -ForegroundColor Yellow
         }
 
-        if ($LASTEXITCODE -ne 0) {
+        if ($exitCode -ne 0) {
             Write-Host ""
-            Write-Host "[ERROR] Server exited with code $LASTEXITCODE" -ForegroundColor Red
+            Write-Host "[ERROR] Server exited with code $exitCode" -ForegroundColor Red
+        } else {
+            Write-Host ""
+            Write-Host "[OK] Server completed successfully" -ForegroundColor Green
         }
     }
     catch {
         Write-Host "[ERROR] Failed to start server: $_" -ForegroundColor Red
+        Write-Host "Exception: $($_.Exception.Message)" -ForegroundColor Red
     }
 
     Write-Host ""
