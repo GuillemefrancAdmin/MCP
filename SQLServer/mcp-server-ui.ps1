@@ -307,7 +307,6 @@ function Add-TablesToConfig {
 
     Write-Host ""
     Write-Host "[*] Adding tables to configuration..." -ForegroundColor Cyan
-    Write-Host ""
 
     $addedCount = 0
     $skippedCount = 0
@@ -334,7 +333,13 @@ function Add-TablesToConfig {
             $filledLength = [math]::Round($percentComplete / 100 * $barLength)
             $progressBar = "=" * $filledLength + " " * ($barLength - $filledLength)
 
-            Write-Host "`r  [$progressBar] $percentComplete% | $addedCount/$totalTables | ETA: ${estimatedRemaining}s" -NoNewline -ForegroundColor Cyan
+            # Overwrite same line (no scrolling)
+            $progressLine = "  [$progressBar] $percentComplete% | $addedCount/$totalTables | ETA: ${estimatedRemaining}s"
+            Write-Host -NoNewline "`r$progressLine" -ForegroundColor Cyan
+
+            # Pad line to clear any previous longer text
+            $padding = " " * (80 - $progressLine.Length)
+            Write-Host -NoNewline $padding
 
         }
         catch {
