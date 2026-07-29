@@ -213,6 +213,24 @@ function Get-ConnectionString {
     }
 }
 
+function Test-DABConfigValid {
+    param([string]$ConfigPath)
+
+    if (-not (Test-Path $ConfigPath)) {
+        return $false
+    }
+
+    try {
+        Push-Location $script:ScriptDir
+        $output = dab describe --config (Split-Path -Leaf $ConfigPath) 2>&1
+        Pop-Location
+        return $LASTEXITCODE -eq 0
+    } catch {
+        Pop-Location
+        return $false
+    }
+}
+
 function Initialize-DABConfig {
     param(
         [string]$ConfigPath,
@@ -222,9 +240,15 @@ function Initialize-DABConfig {
     Write-Host ""
     Write-Host "[*] Initializing DAB Configuration..." -ForegroundColor Cyan
 
+    # Check if config exists and is valid
     if (Test-Path $ConfigPath) {
-        Write-Host "[WARN] Config file already exists. Skipping initialization." -ForegroundColor Yellow
-        return $true
+        if (Test-DABConfigValid -ConfigPath $ConfigPath) {
+            Write-Host "[OK] Config file is valid. Skipping initialization." -ForegroundColor Green
+            return $true
+        } else {
+            Write-Host "[WARN] Config file is broken. Recreating..." -ForegroundColor Yellow
+            Remove-Item $ConfigPath -Force
+        }
     }
 
     try {
