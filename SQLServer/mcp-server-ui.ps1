@@ -18,6 +18,7 @@ $script:SessionConfig = @{
     Database   = ""
     Username   = ""
     AuthMethod = "1"
+    LastUser   = ""
 }
 
 function Load-SessionConfig {
@@ -29,6 +30,7 @@ function Load-SessionConfig {
                 Database   = $saved.Database
                 Username   = $saved.Username
                 AuthMethod = $saved.AuthMethod
+                LastUser   = $saved.LastUser
             }
             return $true
         }
@@ -523,11 +525,21 @@ function Switch-WindowsUser {
     Write-Host ""
     Write-Host "Current Windows User: $currentUser" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "Enter the username you want to switch to." -ForegroundColor White
-    Write-Host "Format: DOMAIN\USERNAME (e.g., UQAC\fguille2)" -ForegroundColor Gray
-    Write-Host ""
 
-    $newUser = Read-Host "New username"
+    if ($script:SessionConfig.LastUser) {
+        Write-Host "Last used user: $($script:SessionConfig.LastUser)" -ForegroundColor Gray
+        $userPrompt = "Username (Enter to use last: $($script:SessionConfig.LastUser))"
+        $newUser = Read-Host $userPrompt
+
+        if ([string]::IsNullOrWhiteSpace($newUser)) {
+            $newUser = $script:SessionConfig.LastUser
+        }
+    } else {
+        Write-Host "Enter the username you want to switch to." -ForegroundColor White
+        Write-Host "Format: DOMAIN\USERNAME (e.g., UQAC\fguille2)" -ForegroundColor Gray
+        Write-Host ""
+        $newUser = Read-Host "Username"
+    }
 
     if ([string]::IsNullOrWhiteSpace($newUser)) {
         Write-Host "[SKIP] No username provided." -ForegroundColor Yellow
@@ -540,6 +552,10 @@ function Switch-WindowsUser {
     Write-Host ""
 
     try {
+        # Save the user for next time
+        $script:SessionConfig.LastUser = $newUser
+        Save-SessionConfig | Out-Null
+
         # Run this script as the new user
         $scriptPath = $MyInvocation.ScriptName
         Write-Host "[*] Switching to user: $newUser" -ForegroundColor Cyan
