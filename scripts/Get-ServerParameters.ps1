@@ -21,6 +21,8 @@ function Get-ServerParameters {
 
     # If SqlHost provided, use all provided parameters as-is
     if (-not [string]::IsNullOrWhiteSpace($SqlHost)) {
+        # Fix port if 0 (empty)
+        if ($SqlPort -eq 0) { $SqlPort = 1433 }
         return @{
             SqlHost = $SqlHost
             SqlPort = $SqlPort

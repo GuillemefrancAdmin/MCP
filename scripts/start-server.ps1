@@ -47,13 +47,13 @@ Path to .env file to load variables from (default: .env)
 #>
 
 param(
-    [string]$SqlHost = $env:SQLSERVER_HOST,
-    [int]$SqlPort = $(if ($env:SQLSERVER_PORT) { [int]$env:SQLSERVER_PORT } else { 1433 }),
-    [string]$SqlUser = $env:SQLSERVER_USER,
-    [string]$SqlPassword = $env:SQLSERVER_PASSWORD,
-    [string]$SqlDatabase = $env:SQLSERVER_DATABASE,
+    [string]$SqlHost = "",
+    [int]$SqlPort = 0,
+    [string]$SqlUser = "",
+    [string]$SqlPassword = "",
+    [string]$SqlDatabase = "",
     [string]$SqlAuth = "",
-    [string]$AdUser = $null,
+    [string]$AdUser = "",
     [string]$EnvFile = ".env"
 )
 
