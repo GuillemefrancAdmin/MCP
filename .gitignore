@@ -151,6 +151,13 @@ scratch/
 *.ldf
 *.ndf
 
+# Test scripts and logs
+*.bat
+*.log
+dab-*
+mcp-error.txt
+mcp-output.txt
+
 # Authentication tokens (never commit these!)
 .npmrc
 auth.json
