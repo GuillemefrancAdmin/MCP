@@ -55,49 +55,32 @@ Write-Host "MCP SQL Server Test Suite" -ForegroundColor Cyan
 Write-Host "==========================" -ForegroundColor Cyan
 Write-Host ""
 
-# Load .env file if it exists
-if (Test-Path $EnvFile) {
-    Write-Host "Loading environment from $EnvFile..." -ForegroundColor Gray
-    Get-Content $EnvFile | ForEach-Object {
-        if ($_ -match '^\s*#' -or $_ -match '^\s*$') { return }
-        $parts = $_ -split '=', 2
-        if ($parts.Count -eq 2) {
-            $key = $parts[0].Trim()
-            $value = $parts[1].Trim()
-            if ($key -and $value) {
-                [System.Environment]::SetEnvironmentVariable($key, $value)
-            }
-        }
-    }
+# Import parameter helper
+. "$PSScriptRoot\Get-ServerParameters.ps1"
+
+# Get parameters (interactive if not provided)
+$params = Get-ServerParameters -SqlHost $SqlHost -SqlPort $SqlPort -SqlUser $SqlUser `
+    -SqlPassword $SqlPassword -SqlDatabase $SqlDatabase -SqlAuth $SqlAuth -AdUser $AdUser -EnvFile $EnvFile
+
+# Apply returned parameters
+$SqlHost = $params.SqlHost
+$SqlPort = $params.SqlPort
+$SqlUser = $params.SqlUser
+$SqlPassword = $params.SqlPassword
+$SqlDatabase = $params.SqlDatabase
+$SqlAuth = $params.SqlAuth
+$AdUser = $params.AdUser
+$EnvFile = $params.EnvFile
+
+# Validate parameters
+if (-not $SqlHost) {
+    Write-Host "ERROR: SQL Server host is required" -ForegroundColor Red
+    exit 1
 }
 
-# Use environment variables if parameters not provided
-if (-not $SqlHost) { $SqlHost = $env:SQLSERVER_HOST }
-if (-not $SqlUser) { $SqlUser = $env:SQLSERVER_USER }
-if (-not $SqlPassword) { $SqlPassword = $env:SQLSERVER_PASSWORD }
-if (-not $SqlDatabase) { $SqlDatabase = $env:SQLSERVER_DATABASE }
-
-# Determine authentication method intelligently
-if (-not $SqlAuth) {
-    if ($env:SQLSERVER_AUTH) {
-        $SqlAuth = $env:SQLSERVER_AUTH
-    }
-    elseif ($SqlUser -and $SqlPassword) {
-        $SqlAuth = "sql"
-    }
-    else {
-        # Default to Windows auth if no credentials provided
-        $SqlAuth = "windows"
-    }
-}
-
-if ($SqlAuth -eq "sql") {
-    if (-not $SqlUser -or -not $SqlPassword) {
-        Write-Host "ERROR: Username and password required for SQL authentication" -ForegroundColor Red
-        Write-Host "Usage: ./test-server.ps1 -SqlUser 'sa' -SqlPassword 'password'" -ForegroundColor Yellow
-        Write-Host "Or use Windows auth: ./test-server.ps1 -SqlAuth 'windows'" -ForegroundColor Yellow
-        exit 1
-    }
+if ($SqlAuth -eq "sql" -and (-not $SqlUser -or -not $SqlPassword)) {
+    Write-Host "ERROR: Username and password required for SQL authentication" -ForegroundColor Red
+    exit 1
 }
 
 Write-Host "Test Configuration:" -ForegroundColor Green
