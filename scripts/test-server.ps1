@@ -1,19 +1,81 @@
 #!/usr/bin/env pwsh
-# Test MCP SQL Server setup and functionality
+<#
+.SYNOPSIS
+Test the MCP SQL Server setup and functionality
+
+.DESCRIPTION
+Comprehensive test suite that builds, validates, and tests the MCP SQL Server.
+Starts the actual MCP server and verifies functionality with your credentials.
+
+.EXAMPLE
+./test-server.ps1
+./test-server.ps1 -SqlHost "db-dev.uqac.ca" -SqlAuth "windows"
+./test-server.ps1 -SqlUser "sa" -SqlPassword "password"
+./test-server.ps1 -EnvFile ".env"
+
+.PARAMETER SqlHost
+SQL Server hostname
+
+.PARAMETER SqlPort
+SQL Server port (default: 1433)
+
+.PARAMETER SqlUser
+Database username (for SQL auth)
+
+.PARAMETER SqlPassword
+Database password (for SQL auth)
+
+.PARAMETER SqlDatabase
+Database name
+
+.PARAMETER SqlAuth
+Authentication type: 'sql' or 'windows' (auto-detected if not specified)
+
+.PARAMETER AdUser
+Active Directory user for Windows auth (optional, uses current user if not specified)
+Format: DOMAIN\username or user@domain.com
+
+.PARAMETER EnvFile
+Path to .env file to load variables from (default: .env)
+#>
 
 param(
-    [string]$SqlHost = $(if ($env:SQLSERVER_HOST) { $env:SQLSERVER_HOST } else { "localhost" }),
+    [string]$SqlHost = $env:SQLSERVER_HOST,
     [int]$SqlPort = $(if ($env:SQLSERVER_PORT) { [int]$env:SQLSERVER_PORT } else { 1433 }),
     [string]$SqlUser = $env:SQLSERVER_USER,
     [string]$SqlPassword = $env:SQLSERVER_PASSWORD,
-    [string]$SqlDatabase = $(if ($env:SQLSERVER_DATABASE) { $env:SQLSERVER_DATABASE } else { "master" }),
-    [string]$SqlAuth = ""
+    [string]$SqlDatabase = $env:SQLSERVER_DATABASE,
+    [string]$SqlAuth = "",
+    [string]$AdUser = $null,
+    [string]$EnvFile = ".env"
 )
 
 Write-Host ""
 Write-Host "MCP SQL Server Test Suite" -ForegroundColor Cyan
 Write-Host "==========================" -ForegroundColor Cyan
 Write-Host ""
+
+# Load .env file if it exists
+if (Test-Path $EnvFile) {
+    Write-Host "Loading environment from $EnvFile..." -ForegroundColor Gray
+    Get-Content $EnvFile | ForEach-Object {
+        if ($_ -match '^\s*#' -or $_ -match '^\s*$') { return }
+        $parts = $_ -split '=', 2
+        if ($parts.Count -eq 2) {
+            $key = $parts[0].Trim()
+            $value = $parts[1].Trim()
+            if ($key -and $value) {
+                [System.Environment]::SetEnvironmentVariable($key, $value)
+            }
+        }
+    }
+}
+
+# Use environment variables if parameters not provided
+if (-not $SqlHost) { $SqlHost = $env:SQLSERVER_HOST }
+if (-not $SqlUser) { $SqlUser = $env:SQLSERVER_USER }
+if (-not $SqlPassword) { $SqlPassword = $env:SQLSERVER_PASSWORD }
+if (-not $SqlDatabase) { $SqlDatabase = $env:SQLSERVER_DATABASE }
 
 # Determine authentication method intelligently
 if (-not $SqlAuth) {
@@ -139,6 +201,19 @@ Write-Host "PASS: Found $depsFound/3 required dependencies" -ForegroundColor Gre
 # Test 6: Start MCP Server and test functionality
 Write-Host ""
 Write-Host "Test 6 - Testing MCP Server with live database..." -ForegroundColor Yellow
+
+# Validate and setup Windows/AD Authentication if needed
+if ($SqlAuth -eq "windows" -and $AdUser) {
+    try {
+        $adUserObj = [System.Security.Principal.NTAccount]::new($AdUser)
+        $sid = $adUserObj.Translate([System.Security.Principal.SecurityIdentifier])
+        Write-Host "  AD user validated: $AdUser" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "ERROR: Could not validate AD user: $AdUser" -ForegroundColor Red
+        exit 1
+    }
+}
 
 # Set up environment for the server
 $env:SQLSERVER_HOST = $SqlHost
