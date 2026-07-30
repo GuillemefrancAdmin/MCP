@@ -16,21 +16,11 @@ function Get-ServerParameters {
         [string]$SqlDatabase,
         [string]$SqlAuth,
         [string]$AdUser,
-        [string]$EnvFile,
-        [switch]$Interactive
+        [string]$EnvFile
     )
 
-    # Check if any parameters provided
-    $hasParameters = -not [string]::IsNullOrWhiteSpace($SqlHost) -or `
-                     -not [string]::IsNullOrWhiteSpace($SqlUser) -or `
-                     -not [string]::IsNullOrWhiteSpace($SqlPassword) -or `
-                     -not [string]::IsNullOrWhiteSpace($SqlDatabase) -or `
-                     -not [string]::IsNullOrWhiteSpace($SqlAuth) -or `
-                     -not [string]::IsNullOrWhiteSpace($AdUser) -or `
-                     ($EnvFile -ne ".env")
-
-    # If parameters provided, use them
-    if ($hasParameters -and -not $Interactive) {
+    # If SqlHost provided, use all provided parameters as-is
+    if (-not [string]::IsNullOrWhiteSpace($SqlHost)) {
         return @{
             SqlHost = $SqlHost
             SqlPort = $SqlPort
@@ -43,7 +33,7 @@ function Get-ServerParameters {
         }
     }
 
-    # Load .env file if it exists
+    # Try to load .env file if it exists
     if (Test-Path $EnvFile) {
         Write-Host "Found $EnvFile, loading configuration..." -ForegroundColor Cyan
         Get-Content $EnvFile | ForEach-Object {
@@ -58,8 +48,9 @@ function Get-ServerParameters {
             }
         }
 
-        # Use .env values if no parameters provided
-        if (-not $hasParameters) {
+        # If .env loaded values, use them
+        if ($env:SQLSERVER_HOST) {
+            Write-Host "Using configuration from $EnvFile" -ForegroundColor Green
             return @{
                 SqlHost = $env:SQLSERVER_HOST
                 SqlPort = if ($env:SQLSERVER_PORT) { [int]$env:SQLSERVER_PORT } else { 1433 }
@@ -73,7 +64,7 @@ function Get-ServerParameters {
         }
     }
 
-    # Interactive mode - ask user
+    # Interactive mode - ask user for all parameters
     Write-Host ""
     Write-Host "No parameters provided. Configuring SQL Server connection interactively..." -ForegroundColor Cyan
     Write-Host ""
