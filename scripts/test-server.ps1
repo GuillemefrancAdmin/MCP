@@ -4,10 +4,10 @@
 param(
     [string]$SqlHost = $(if ($env:SQLSERVER_HOST) { $env:SQLSERVER_HOST } else { "localhost" }),
     [int]$SqlPort = $(if ($env:SQLSERVER_PORT) { [int]$env:SQLSERVER_PORT } else { 1433 }),
-    [string]$SqlUser = $(if ($env:SQLSERVER_USER) { $env:SQLSERVER_USER } else { "sa" }),
+    [string]$SqlUser = $env:SQLSERVER_USER,
     [string]$SqlPassword = $env:SQLSERVER_PASSWORD,
     [string]$SqlDatabase = $(if ($env:SQLSERVER_DATABASE) { $env:SQLSERVER_DATABASE } else { "master" }),
-    [string]$SqlAuth = $(if ($env:SQLSERVER_AUTH) { $env:SQLSERVER_AUTH } else { "sql" })
+    [string]$SqlAuth = ""
 )
 
 Write-Host ""
@@ -15,9 +15,25 @@ Write-Host "MCP SQL Server Test Suite" -ForegroundColor Cyan
 Write-Host "==========================" -ForegroundColor Cyan
 Write-Host ""
 
+# Determine authentication method intelligently
+if (-not $SqlAuth) {
+    if ($env:SQLSERVER_AUTH) {
+        $SqlAuth = $env:SQLSERVER_AUTH
+    }
+    elseif ($SqlUser -and $SqlPassword) {
+        $SqlAuth = "sql"
+    }
+    else {
+        # Default to Windows auth if no credentials provided
+        $SqlAuth = "windows"
+    }
+}
+
 if ($SqlAuth -eq "sql") {
     if (-not $SqlUser -or -not $SqlPassword) {
         Write-Host "ERROR: Username and password required for SQL authentication" -ForegroundColor Red
+        Write-Host "Usage: ./test-server.ps1 -SqlUser 'sa' -SqlPassword 'password'" -ForegroundColor Yellow
+        Write-Host "Or use Windows auth: ./test-server.ps1 -SqlAuth 'windows'" -ForegroundColor Yellow
         exit 1
     }
 }
@@ -124,4 +140,9 @@ Write-Host "PASS: Found $depsFound/3 required dependencies" -ForegroundColor Gre
 Write-Host ""
 Write-Host "==========================" -ForegroundColor Cyan
 Write-Host "All Tests Passed" -ForegroundColor Green
+Write-Host ""
+Write-Host "Detected Auth: $SqlAuth" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Ready to start server:" -ForegroundColor Green
+Write-Host "  ./scripts/start-server.ps1" -ForegroundColor Yellow
 Write-Host ""

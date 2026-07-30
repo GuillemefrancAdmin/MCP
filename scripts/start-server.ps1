@@ -52,7 +52,7 @@ param(
     [string]$SqlUser = $env:SQLSERVER_USER,
     [string]$SqlPassword = $env:SQLSERVER_PASSWORD,
     [string]$SqlDatabase = $env:SQLSERVER_DATABASE,
-    [string]$SqlAuth = $(if ($env:SQLSERVER_AUTH) { $env:SQLSERVER_AUTH } else { "sql" }),
+    [string]$SqlAuth = "",
     [string]$AdUser = $null,
     [string]$EnvFile = ".env"
 )
@@ -95,6 +95,20 @@ if (-not $SqlHost) { $SqlHost = $env:SQLSERVER_HOST }
 if (-not $SqlUser) { $SqlUser = $env:SQLSERVER_USER }
 if (-not $SqlPassword) { $SqlPassword = $env:SQLSERVER_PASSWORD }
 if (-not $SqlDatabase) { $SqlDatabase = $env:SQLSERVER_DATABASE }
+
+# Determine authentication method intelligently
+if (-not $SqlAuth) {
+    if ($env:SQLSERVER_AUTH) {
+        $SqlAuth = $env:SQLSERVER_AUTH
+    }
+    elseif ($SqlUser -and $SqlPassword) {
+        $SqlAuth = "sql"
+    }
+    else {
+        # Default to Windows auth if no credentials provided
+        $SqlAuth = "windows"
+    }
+}
 
 # Validate required parameters
 if (-not $SqlHost) {
