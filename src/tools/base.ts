@@ -1,6 +1,6 @@
 import { SqlServerConnection } from '../connection.js';
-import { QueryValidator } from '../security.js';
-import { ErrorHandler } from '../errors.js';
+import { validateQuery } from '../validation.js';
+import { handleError } from '../errors.js';
 
 export abstract class BaseTool {
   protected connection: SqlServerConnection;
@@ -11,26 +11,18 @@ export abstract class BaseTool {
     this.maxRows = maxRows;
   }
 
-  protected async executeQuery<T = any>(query: string): Promise<T[]> {
-    const validation = QueryValidator.validateQuery(query);
-    if (!validation.isValid) {
-      throw new Error(`Query validation failed: ${validation.error}`);
-    }
-
-    const sanitizedQuery = QueryValidator.sanitizeQuery(query);
-    const limitedQuery = QueryValidator.addRowLimit(sanitizedQuery, this.maxRows);
-
-    const result = await this.connection.query<T>(limitedQuery);
-    return result.recordset;
-  }
-
   protected async executeSafeQuery<T = any>(query: string): Promise<T[]> {
     try {
+      if (!validateQuery(query)) {
+        throw new Error('Query blocked: only SELECT, WITH, SHOW, DESCRIBE allowed');
+      }
+
+      const limitedQuery = `${query}\nOFFSET 0 ROWS FETCH NEXT ${this.maxRows} ROWS ONLY`;
       await this.connection.connect();
-      return await this.executeQuery<T>(query);
+      return await this.connection.query<T>(limitedQuery);
     } catch (error) {
-      const mcpError = ErrorHandler.handleSqlServerError(error);
-      throw mcpError;
+      const { message } = handleError(error);
+      throw new Error(message);
     }
   }
 

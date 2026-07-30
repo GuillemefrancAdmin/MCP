@@ -1,7 +1,6 @@
 import { BaseTool } from './base.js';
 import { QueryResult } from '../types.js';
-import { ParameterValidator } from '../validation.js';
-import { ErrorHandler } from '../errors.js';
+import { validateQuery } from '../validation.js';
 
 export class ExecuteQueryTool extends BaseTool {
   getName(): string {
@@ -16,59 +15,26 @@ export class ExecuteQueryTool extends BaseTool {
     return {
       type: 'object',
       properties: {
-        query: {
-          type: 'string',
-          description: 'SQL SELECT query to execute (read-only operations only)',
-        },
-        limit: {
-          type: 'number',
-          description: 'Maximum number of rows to return (optional)',
-          minimum: 1,
-          maximum: 10000,
-        },
+        query: { type: 'string', description: 'SQL SELECT query (read-only only)' },
+        limit: { type: 'number', description: 'Max rows to return', minimum: 1, maximum: 10000 },
       },
       required: ['query'],
     };
   }
 
   async execute(params: { query: string; limit?: number }): Promise<QueryResult> {
-    const validatedParams = ParameterValidator.validateQueryParameters(params);
-    const { query, limit } = validatedParams;
-    const maxRows = limit;
+    if (!params.query) throw new Error('query is required');
+    if (!validateQuery(params.query)) throw new Error('Query not allowed');
 
-    const startTime = Date.now();
-    
-    try {
-      await this.connection.connect();
-      
-      // Override the maxRows for this specific query
-      const originalMaxRows = this.maxRows;
-      this.maxRows = maxRows;
-      
-      const result = await this.executeQuery(query);
-      const executionTime = Date.now() - startTime;
+    const limit = Math.min(params.limit || 1000, 10000);
+    const query = `${params.query}\nOFFSET 0 ROWS FETCH NEXT ${limit} ROWS ONLY`;
 
-      // Restore original maxRows
-      this.maxRows = originalMaxRows;
+    await this.connection.connect();
+    const result = await this.connection.query(query);
 
-      // Extract column names
-      const columns = result.length > 0 ? Object.keys(result[0]) : [];
-      
-      // Convert to rows array
-      const rows = result.map(row => columns.map(col => row[col]));
+    const columns = result.length > 0 ? Object.keys(result[0]) : [];
+    const rows = result.map(row => columns.map(col => row[col]));
 
-      return {
-        columns,
-        rows,
-        rowCount: result.length,
-        executionTime,
-      };
-    } catch (error) {
-      const executionTime = Date.now() - startTime;
-      const mcpError = ErrorHandler.handleSqlServerError(error);
-      // Add execution time to error message
-      mcpError.message = `${mcpError.message} (execution time: ${executionTime}ms)`;
-      throw mcpError;
-    }
+    return { columns, rows, rowCount: result.length };
   }
 }

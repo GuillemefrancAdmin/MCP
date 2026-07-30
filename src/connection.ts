@@ -10,9 +10,7 @@ export class SqlServerConnection {
   }
 
   async connect(): Promise<void> {
-    if (this.pool) {
-      return;
-    }
+    if (this.pool?.connected) return;
 
     const sqlConfig: any = {
       server: this.config.server,
@@ -22,20 +20,11 @@ export class SqlServerConnection {
         encrypt: this.config.encrypt,
         trustServerCertificate: this.config.trustServerCertificate,
         connectTimeout: this.config.connectionTimeout,
-        requestTimeout: this.config.requestTimeout,
-      },
-      pool: {
-        max: 10,
-        min: 0,
-        idleTimeoutMillis: 30000,
       },
     };
 
-    // Use Windows integrated authentication or SQL authentication
     if (this.config.authentication === 'windows') {
-      sqlConfig.authentication = {
-        type: 'windows',
-      };
+      sqlConfig.authentication = { type: 'windows' };
     } else {
       sqlConfig.user = this.config.user;
       sqlConfig.password = this.config.password;
@@ -52,30 +41,28 @@ export class SqlServerConnection {
     }
   }
 
-  async query<T = any>(queryText: string): Promise<sql.IResult<T>> {
-    if (!this.pool) {
-      throw new Error('Database connection not established');
+  async query<T = any>(queryText: string): Promise<T[]> {
+    if (!this.pool?.connected) {
+      throw new Error('Not connected to database');
     }
 
     const request = this.pool.request();
-    return await request.query(queryText);
+    const result = await request.query(queryText);
+    const recordset = Array.isArray(result.recordsets) ? result.recordsets[0] : result.recordset;
+    return (recordset || []) as T[];
   }
 
   async testConnection(): Promise<boolean> {
     try {
       await this.connect();
-      const result = await this.query('SELECT 1 as test');
-      return result.recordset.length > 0;
-    } catch (error) {
+      await this.query('SELECT 1 as test');
+      return true;
+    } catch {
       return false;
     }
   }
 
   isConnected(): boolean {
-    return this.pool !== null && this.pool.connected;
-  }
-
-  getConfig(): Readonly<ConnectionConfig> {
-    return { ...this.config };
+    return this.pool?.connected ?? false;
   }
 }

@@ -11,26 +11,12 @@ export class ListDatabasesTool extends BaseTool {
   }
 
   getInputSchema(): any {
-    return {
-      type: 'object',
-      properties: {},
-      required: [],
-    };
+    return { type: 'object', properties: {} };
   }
 
-  async execute(): Promise<DatabaseInfo[]> {
-    const query = `
-      SELECT 
-        database_id,
-        name,
-        create_date,
-        collation_name,
-        state_desc
-      FROM sys.databases
-      WHERE state_desc = 'ONLINE'
-      ORDER BY name
-    `;
-
-    return await this.executeSafeQuery<DatabaseInfo>(query);
+  async execute(): Promise<{ databases: DatabaseInfo[] }> {
+    const query = 'SELECT name, state_desc as state FROM sys.databases ORDER BY name';
+    const result = await this.executeSafeQuery<DatabaseInfo>(query);
+    return { databases: result };
   }
 }

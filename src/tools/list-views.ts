@@ -1,5 +1,5 @@
 import { BaseTool } from './base.js';
-import { ViewInfo } from '../types.js';
+import { TableInfo } from '../types.js';
 
 export class ListViewsTool extends BaseTool {
   getName(): string {
@@ -7,42 +7,28 @@ export class ListViewsTool extends BaseTool {
   }
 
   getDescription(): string {
-    return 'List all views in the current database or specified schema';
+    return 'List views in a database or schema';
   }
 
   getInputSchema(): any {
     return {
       type: 'object',
       properties: {
-        schema: {
-          type: 'string',
-          description: 'Schema name to filter views (optional)',
-        },
+        schema: { type: 'string', description: 'Schema name (default: dbo)' },
       },
-      required: [],
     };
   }
 
-  async execute(params: { schema?: string }): Promise<ViewInfo[]> {
-    const { schema } = params;
-
-    let query = `
-      SELECT 
-        TABLE_CATALOG as table_catalog,
-        TABLE_SCHEMA as table_schema,
-        TABLE_NAME as table_name,
-        VIEW_DEFINITION as view_definition,
-        CHECK_OPTION as check_option,
-        IS_UPDATABLE as is_updatable
-      FROM INFORMATION_SCHEMA.VIEWS
+  async execute(params?: { schema?: string }): Promise<{ views: TableInfo[] }> {
+    const schema = params?.schema || 'dbo';
+    const query = `
+      SELECT table_name, table_schema, 'VIEW' as table_type
+      FROM information_schema.views
+      WHERE table_schema = '${schema}'
+      ORDER BY table_name
     `;
 
-    if (schema) {
-      query += ` WHERE TABLE_SCHEMA = '${schema.replace(/'/g, "''")}'`;
-    }
-
-    query += ' ORDER BY TABLE_SCHEMA, TABLE_NAME';
-
-    return await this.executeSafeQuery<ViewInfo>(query);
+    const result = await this.executeSafeQuery<TableInfo>(query);
+    return { views: result };
   }
 }

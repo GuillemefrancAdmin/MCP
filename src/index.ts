@@ -1,20 +1,70 @@
 #!/usr/bin/env node
 
-// MCP SQL Server - Production version
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { SqlServerConnection } from './connection.js';
+import { ConnectionConfigSchema } from './types.js';
+import {
+  ListDatabasesTool,
+  ListTablesTool,
+  ListViewsTool,
+  DescribeTableTool,
+  ExecuteQueryTool,
+  GetForeignKeysTool,
+  GetServerInfoTool,
+  GetTableStatsTool,
+  TestConnectionTool,
+} from './tools/index.js';
+import { handleError } from './errors.js';
 
-async function runServer() {
-  try {
-    // Dynamic imports to support execution from any working directory
-    const { handleCliArgs } = await import('./cli.js');
-    const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
-    const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
-    const {
-      CallToolRequestSchema,
-      ListToolsRequestSchema,
-    } = await import('@modelcontextprotocol/sdk/types.js');
-    const { SqlServerConnection } = await import('./connection.js');
-    const { ConnectionConfigSchema } = await import('./types.js');
-    const {
+class MCP_SQLServer {
+  private server: Server;
+  private connection!: SqlServerConnection;
+  private tools: Map<string, any> = new Map();
+
+  constructor() {
+    this.server = new Server(
+      { name: 'mcp-sqlserver', version: '2.0.3' },
+      { capabilities: { tools: {} } }
+    );
+    this.setupHandlers();
+  }
+
+  private setupHandlers() {
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: Array.from(this.tools.values()).map(tool => ({
+        name: tool.getName(),
+        description: tool.getDescription(),
+        inputSchema: tool.getInputSchema(),
+      })),
+    }));
+
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const tool = this.tools.get(request.params.name);
+      if (!tool) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ error: 'Unknown tool' }) }],
+          isError: true,
+        };
+      }
+
+      try {
+        const result = await tool.execute(request.params.arguments || {});
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        const { message, code } = handleError(error);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ error: message, code }) }],
+          isError: true,
+        };
+      }
+    });
+  }
+
+  private initTools(maxRows: number) {
+    const toolClasses = [
+      TestConnectionTool,
       ListDatabasesTool,
       ListTablesTool,
       ListViewsTool,
@@ -23,206 +73,69 @@ async function runServer() {
       GetForeignKeysTool,
       GetServerInfoTool,
       GetTableStatsTool,
-      TestConnectionTool,
-    } = await import('./tools/index.js');
-    const { ErrorHandler } = await import('./errors.js');
+    ];
 
-    class SqlServerMCPServer {
-      private server: typeof Server.prototype;
-      private connection!: typeof SqlServerConnection.prototype;
-      private tools: Map<string, any> = new Map();
-
-      constructor() {
-        this.server = new Server(
-          {
-            name: 'mcp-sqlserver',
-            version: '2.0.3',
-          },
-          {
-            capabilities: {
-              tools: {},
-            },
-          }
-        );
-
-        this.setupErrorHandling();
-        this.setupRequestHandlers();
-      }
-
-      private setupErrorHandling() {
-        this.server.onerror = (error: Error) => {
-          console.error('[MCP Error]', error);
-        };
-
-        process.on('SIGINT', async () => {
-          await this.cleanup();
-          process.exit(0);
-        });
-
-        process.on('SIGTERM', async () => {
-          await this.cleanup();
-          process.exit(0);
-        });
-      }
-
-      private async cleanup() {
-        if (this.connection) {
-          await this.connection.disconnect();
-        }
-      }
-
-      private setupRequestHandlers() {
-        this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-          return {
-            tools: Array.from(this.tools.values()).map(tool => ({
-              name: tool.getName(),
-              description: tool.getDescription(),
-              inputSchema: tool.getInputSchema(),
-            })),
-          };
-        });
-
-        this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-          const { name, arguments: args } = request.params;
-          
-          if (!this.tools.has(name)) {
-            throw new Error(`Unknown tool: ${name}`);
-          }
-
-          const tool = this.tools.get(name);
-          
-          try {
-            const result = await tool.execute(args || {});
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify(result, null, 2),
-                },
-              ],
-            };
-          } catch (error) {
-            const mcpError = ErrorHandler.handleSqlServerError(error);
-            const userError = ErrorHandler.formatErrorForUser(mcpError);
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    error: userError.error,
-                    code: userError.code,
-                    suggestions: userError.suggestions,
-                  }, null, 2),
-                },
-              ],
-              isError: true,
-            };
-          }
-        });
-      }
-
-      private initializeTools(maxRows: number) {
-        const toolClasses = [
-          TestConnectionTool,
-          ListDatabasesTool,
-          ListTablesTool,
-          ListViewsTool,
-          DescribeTableTool,
-          ExecuteQueryTool,
-          GetForeignKeysTool,
-          GetServerInfoTool,
-          GetTableStatsTool,
-        ];
-
-        for (const ToolClass of toolClasses) {
-          const tool = new ToolClass(this.connection, maxRows);
-          this.tools.set(tool.getName(), tool);
-        }
-      }
-
-      async initialize(config: any) {
-        try {
-          this.connection = new SqlServerConnection(config);
-
-          // Don't connect immediately in MCP mode - defer connection until first tool use
-          // This prevents the server from failing startup if SQL Server is temporarily unavailable
-          const authInfo = config.authentication === 'windows' ? 'Windows Auth' : `SQL Auth (${config.user})`;
-          console.error(`MCP SQL Server initialized for ${config.server}:${config.port || 1433}`);
-          console.error(`Database: ${config.database || 'default'}, Auth: ${authInfo}`);
-
-          this.initializeTools(config.maxRows || 1000);
-        } catch (error) {
-          console.error(`Initialization failed:`, error);
-          throw error;
-        }
-      }
-
-      async run() {
-        const transport = new StdioServerTransport();
-        await this.server.connect(transport);
-        console.error('MCP SQL Server running on stdio');
-      }
+    for (const ToolClass of toolClasses) {
+      const tool = new ToolClass(this.connection, maxRows);
+      this.tools.set(tool.getName(), tool);
     }
+  }
 
-    async function main() {
-      // Handle CLI arguments and help
-      if (!handleCliArgs()) {
-        return;
-      }
-
-      // Read configuration from environment variables
-      const authType = (process.env.SQLSERVER_AUTH || 'sql').toLowerCase();
-      const config: any = {
-        server: process.env.SQLSERVER_HOST || 'localhost',
-        database: process.env.SQLSERVER_DATABASE,
-        port: parseInt(process.env.SQLSERVER_PORT || '1433'),
-        encrypt: process.env.SQLSERVER_ENCRYPT !== 'false',
-        trustServerCertificate: process.env.SQLSERVER_TRUST_CERT !== 'false',
-        connectionTimeout: parseInt(process.env.SQLSERVER_CONNECTION_TIMEOUT || '30000'),
-        requestTimeout: parseInt(process.env.SQLSERVER_REQUEST_TIMEOUT || '60000'),
-        maxRows: parseInt(process.env.SQLSERVER_MAX_ROWS || '1000'),
-        authentication: authType,
-      };
-
-      // Add user/password only for SQL authentication
-      if (authType === 'sql') {
-        config.user = process.env.SQLSERVER_USER || '';
-        config.password = process.env.SQLSERVER_PASSWORD || '';
-      }
-
-      // Validate configuration
-      try {
-        ConnectionConfigSchema.parse(config);
-      } catch (error) {
-        console.error('Invalid configuration:', error);
-        process.exit(1);
-      }
-
-      if (authType === 'sql' && (!config.user || !config.password)) {
-        console.error('Error: SQLSERVER_USER and SQLSERVER_PASSWORD environment variables are required for SQL authentication');
-        process.exit(1);
-      }
-
-      const server = new SqlServerMCPServer();
-      
-      try {
-        await server.initialize(config);
-        await server.run();
-      } catch (error) {
-        console.error('Failed to start server:', error);
-        process.exit(1);
-      }
+  async initialize(config: any) {
+    try {
+      ConnectionConfigSchema.parse(config);
+      this.connection = new SqlServerConnection(config);
+      this.initTools(config.maxRows || 1000);
+      console.error(`MCP SQL Server initialized: ${config.server}`);
+    } catch (error) {
+      console.error('Initialization failed:', error);
+      throw error;
     }
+  }
 
-    await main();
-    
-  } catch (error) {
-    console.error('Failed to start MCP server:', (error as Error).message);
-    process.exit(1);
+  async run() {
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+    console.error('MCP SQL Server ready');
   }
 }
 
-runServer().catch((error) => {
-  console.error('Unhandled error:', error);
+async function main() {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log(`MCP SQL Server v2.0.3
+ENVIRONMENT VARIABLES:
+  SQLSERVER_HOST - SQL Server hostname (required)
+  SQLSERVER_USER - Username (for SQL auth)
+  SQLSERVER_PASSWORD - Password (for SQL auth)
+  SQLSERVER_DATABASE - Database name
+  SQLSERVER_PORT - Port (default: 1433)
+  SQLSERVER_ENCRYPT - Enable encryption (default: true)
+  SQLSERVER_TRUST_CERT - Trust cert (default: true)
+  SQLSERVER_AUTH - 'sql' or 'windows' (default: sql)
+  SQLSERVER_MAX_ROWS - Max rows per query (default: 1000)`);
+    return;
+  }
+
+  const config = {
+    server: process.env.SQLSERVER_HOST || 'localhost',
+    database: process.env.SQLSERVER_DATABASE,
+    port: parseInt(process.env.SQLSERVER_PORT || '1433'),
+    encrypt: process.env.SQLSERVER_ENCRYPT !== 'false',
+    trustServerCertificate: process.env.SQLSERVER_TRUST_CERT !== 'false',
+    connectionTimeout: parseInt(process.env.SQLSERVER_CONNECTION_TIMEOUT || '30000'),
+    requestTimeout: parseInt(process.env.SQLSERVER_REQUEST_TIMEOUT || '60000'),
+    maxRows: parseInt(process.env.SQLSERVER_MAX_ROWS || '1000'),
+    authentication: (process.env.SQLSERVER_AUTH || 'sql').toLowerCase(),
+    user: process.env.SQLSERVER_USER,
+    password: process.env.SQLSERVER_PASSWORD,
+  };
+
+  const server = new MCP_SQLServer();
+  await server.initialize(config);
+  await server.run();
+}
+
+main().catch(error => {
+  console.error('Fatal error:', error);
   process.exit(1);
 });

@@ -1,5 +1,6 @@
 import { BaseTool } from './base.js';
 import { ForeignKeyInfo } from '../types.js';
+import { validateTableName } from '../validation.js';
 
 export class GetForeignKeysTool extends BaseTool {
   getName(): string {
@@ -7,60 +8,34 @@ export class GetForeignKeysTool extends BaseTool {
   }
 
   getDescription(): string {
-    return 'Get foreign key relationships for a table or entire database';
+    return 'Get foreign key relationships for a table';
   }
 
   getInputSchema(): any {
     return {
       type: 'object',
       properties: {
-        table_name: {
-          type: 'string',
-          description: 'Name of the table to get foreign keys for (optional - if not provided, returns all foreign keys)',
-        },
-        schema: {
-          type: 'string',
-          description: 'Schema name (optional, defaults to dbo)',
-          default: 'dbo',
-        },
+        table_name: { type: 'string', description: 'Table name (required)' },
       },
-      required: [],
+      required: ['table_name'],
     };
   }
 
-  async execute(params: { table_name?: string; schema?: string }): Promise<ForeignKeyInfo[]> {
-    const { table_name, schema = 'dbo' } = params;
+  async execute(params: { table_name: string }): Promise<{ foreign_keys: ForeignKeyInfo[] }> {
+    if (!params.table_name) throw new Error('table_name is required');
+    if (!validateTableName(params.table_name)) throw new Error('Invalid table name');
 
-    let query = `
-      SELECT 
-        fk.name as constraint_name,
-        OBJECT_SCHEMA_NAME(fk.parent_object_id) as table_schema,
-        OBJECT_NAME(fk.parent_object_id) as table_name,
-        COL_NAME(fkc.parent_object_id, fkc.parent_column_id) as column_name,
-        OBJECT_SCHEMA_NAME(fk.referenced_object_id) as referenced_table_schema,
-        OBJECT_NAME(fk.referenced_object_id) as referenced_table_name,
-        COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id) as referenced_column_name
-      FROM sys.foreign_keys fk
-      INNER JOIN sys.foreign_key_columns fkc 
-        ON fk.object_id = fkc.constraint_object_id
+    const query = `
+      SELECT CONSTRAINT_NAME as constraint_name, TABLE_NAME as table_name,
+             COLUMN_NAME as column_name, REFERENCED_TABLE_NAME as referenced_table_name,
+             REFERENCED_COLUMN_NAME as referenced_column_name
+      FROM information_schema.referential_constraints rc
+      JOIN information_schema.key_column_usage kcu
+        ON rc.constraint_name = kcu.constraint_name
+      WHERE kcu.table_name = '${params.table_name}'
     `;
 
-    const conditions = [];
-    
-    if (table_name) {
-      conditions.push(`OBJECT_NAME(fk.parent_object_id) = '${table_name.replace(/'/g, "''")}'`);
-    }
-    
-    if (schema && table_name) {
-      conditions.push(`OBJECT_SCHEMA_NAME(fk.parent_object_id) = '${schema.replace(/'/g, "''")}'`);
-    }
-
-    if (conditions.length > 0) {
-      query += ` WHERE ${conditions.join(' AND ')}`;
-    }
-
-    query += ' ORDER BY table_schema, table_name, constraint_name';
-
-    return await this.executeSafeQuery<ForeignKeyInfo>(query);
+    const result = await this.executeSafeQuery<ForeignKeyInfo>(query);
+    return { foreign_keys: result };
   }
 }

@@ -1,6 +1,6 @@
 import { BaseTool } from './base.js';
 import { TableInfo } from '../types.js';
-import { ParameterValidator } from '../validation.js';
+import { validateSchemaName } from '../validation.js';
 
 export class ListTablesTool extends BaseTool {
   getName(): string {
@@ -8,43 +8,34 @@ export class ListTablesTool extends BaseTool {
   }
 
   getDescription(): string {
-    return 'List all tables in the current database or specified schema';
+    return 'List tables in a database or schema';
   }
 
   getInputSchema(): any {
     return {
       type: 'object',
       properties: {
-        schema: {
-          type: 'string',
-          description: 'Schema name to filter tables (optional)',
-        },
+        schema: { type: 'string', description: 'Schema name (default: dbo)' },
       },
-      required: [],
     };
   }
 
-  async execute(params: { schema?: string }): Promise<TableInfo[]> {
-    const validatedParams = ParameterValidator.validateListTablesParameters(params);
-    const { schema } = validatedParams;
-
+  async execute(params?: { schema?: string }): Promise<{ tables: TableInfo[] }> {
     let query = `
-      SELECT 
-        TABLE_CATALOG as table_catalog,
-        TABLE_SCHEMA as table_schema,
-        TABLE_NAME as table_name,
-        TABLE_TYPE as table_type
-      FROM INFORMATION_SCHEMA.TABLES
-      WHERE TABLE_TYPE = 'BASE TABLE'
+      SELECT table_name, table_schema, table_type
+      FROM information_schema.tables
+      WHERE table_type = 'BASE TABLE'
     `;
 
-    if (schema) {
-      const escapedSchema = ParameterValidator.escapeIdentifier(schema);
-      query += ` AND TABLE_SCHEMA = ${escapedSchema}`;
+    const schema = params?.schema;
+    if (schema && validateSchemaName(schema)) {
+      query += ` AND table_schema = '${schema}'`;
+    } else {
+      query += ` AND table_schema = 'dbo'`;
     }
 
-    query += ' ORDER BY TABLE_SCHEMA, TABLE_NAME';
-
-    return await this.executeSafeQuery<TableInfo>(query);
+    query += ` ORDER BY table_name`;
+    const result = await this.executeSafeQuery<TableInfo>(query);
+    return { tables: result };
   }
 }

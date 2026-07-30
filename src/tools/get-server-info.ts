@@ -1,5 +1,4 @@
 import { BaseTool } from './base.js';
-import { ServerInfo } from '../types.js';
 
 export class GetServerInfoTool extends BaseTool {
   getName(): string {
@@ -7,28 +6,22 @@ export class GetServerInfoTool extends BaseTool {
   }
 
   getDescription(): string {
-    return 'Get SQL Server instance information including version, edition, and configuration';
+    return 'Get SQL Server version and configuration information';
   }
 
   getInputSchema(): any {
-    return {
-      type: 'object',
-      properties: {},
-      required: [],
-    };
+    return { type: 'object', properties: {} };
   }
 
-  async execute(): Promise<ServerInfo> {
+  async execute(): Promise<any> {
     const query = `
-      SELECT 
-        @@SERVERNAME as server_name,
-        @@VERSION as product_version,
-        SERVERPROPERTY('ProductLevel') as product_level,
-        SERVERPROPERTY('Edition') as edition,
-        SERVERPROPERTY('EngineEdition') as engine_edition
+      SELECT SERVERPROPERTY('ServerName') as server_name,
+             SERVERPROPERTY('ProductVersion') as version,
+             SERVERPROPERTY('Edition') as edition,
+             SERVERPROPERTY('ProductLevel') as product_level
     `;
 
-    const result = await this.executeSafeQuery<ServerInfo>(query);
-    return result[0];
+    const result = await this.executeSafeQuery(query);
+    return result[0] || { error: 'Unable to retrieve server info' };
   }
 }
