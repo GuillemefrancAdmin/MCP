@@ -1,36 +1,49 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-Start the MCP SQL Server
+Start the MCP SQL Server with AD/Windows Authentication support
 
 .DESCRIPTION
-Starts the SQL Server MCP server with environment variables from .env or command line
+Starts the SQL Server MCP server with environment variables from .env or command line.
+Supports both SQL authentication and Active Directory (Windows) authentication.
 
 .EXAMPLE
-./start-server.ps1
-./start-server.ps1 -Host "localhost" -User "sa" -Password "password" -Database "master"
+# SQL Authentication
+./start-server.ps1 -SqlHost "localhost" -SqlUser "sa" -SqlPassword "password"
+
+# Windows/AD Authentication (uses current user)
+./start-server.ps1 -SqlHost "sql-server.company.com" -SqlAuth "windows"
+
+# Windows/AD Authentication (use specific AD user)
+./start-server.ps1 -SqlHost "sql-server.company.com" -SqlAuth "windows" -AdUser "DOMAIN\username"
+
+# From .env file
 ./start-server.ps1 -EnvFile ".env"
 
-.PARAMETER Host
-SQL Server hostname
+.PARAMETER SqlHost
+SQL Server hostname or IP address (required)
 
-.PARAMETER Port
+.PARAMETER SqlPort
 SQL Server port (default: 1433)
 
-.PARAMETER User
-Database username (for SQL auth)
+.PARAMETER SqlUser
+Database username (required for SQL auth, optional for Windows auth)
 
-.PARAMETER Password
-Database password (for SQL auth)
+.PARAMETER SqlPassword
+Database password (required for SQL auth, not used for Windows auth)
 
-.PARAMETER Database
-Database name
+.PARAMETER SqlDatabase
+Default database name
 
-.PARAMETER Auth
+.PARAMETER SqlAuth
 Authentication type: 'sql' or 'windows' (default: sql)
 
+.PARAMETER AdUser
+Active Directory user for Windows auth (optional, uses current user if not specified)
+Format: DOMAIN\username or user@domain.com
+
 .PARAMETER EnvFile
-Path to .env file to load variables from
+Path to .env file to load variables from (default: .env)
 #>
 
 param(
@@ -40,12 +53,30 @@ param(
     [string]$SqlPassword = $env:SQLSERVER_PASSWORD,
     [string]$SqlDatabase = $env:SQLSERVER_DATABASE,
     [string]$SqlAuth = $(if ($env:SQLSERVER_AUTH) { $env:SQLSERVER_AUTH } else { "sql" }),
+    [string]$AdUser = $null,
     [string]$EnvFile = ".env"
 )
 
+# Color output helper
+function Write-Status {
+    param([string]$Message, [string]$Status = "INFO")
+    $colors = @{
+        "INFO"    = "Cyan"
+        "SUCCESS" = "Green"
+        "WARNING" = "Yellow"
+        "ERROR"   = "Red"
+    }
+    Write-Host $Message -ForegroundColor $colors[$Status]
+}
+
+Write-Host ""
+Write-Status "MCP SQL Server Startup" "INFO"
+Write-Status "======================" "INFO"
+Write-Host ""
+
 # Load .env file if it exists
 if (Test-Path $EnvFile) {
-    Write-Host "Loading environment from $EnvFile..." -ForegroundColor Cyan
+    Write-Status "Loading environment from $EnvFile..." "INFO"
     Get-Content $EnvFile | ForEach-Object {
         if ($_ -match '^\s*#' -or $_ -match '^\s*$') { return }
         $parts = $_ -split '=', 2
@@ -67,52 +98,108 @@ if (-not $SqlDatabase) { $SqlDatabase = $env:SQLSERVER_DATABASE }
 
 # Validate required parameters
 if (-not $SqlHost) {
-    Write-Host "ERROR: SQLSERVER_HOST is required" -ForegroundColor Red
+    Write-Status "ERROR: SQLSERVER_HOST is required" "ERROR"
     Write-Host ""
-    Write-Host "Usage: ./start-server.ps1 -SqlHost 'your-server' -SqlUser 'sa' -SqlPassword 'password'" -ForegroundColor Yellow
+    Write-Host "Usage Examples:" -ForegroundColor Yellow
+    Write-Host "  SQL Auth:"
+    Write-Host "    ./start-server.ps1 -SqlHost 'localhost' -SqlUser 'sa' -SqlPassword 'password'"
+    Write-Host ""
+    Write-Host "  Windows/AD Auth (current user):"
+    Write-Host "    ./start-server.ps1 -SqlHost 'sql-server' -SqlAuth 'windows'"
+    Write-Host ""
+    Write-Host "  Windows/AD Auth (specific user):"
+    Write-Host "    ./start-server.ps1 -SqlHost 'sql-server' -SqlAuth 'windows' -AdUser 'DOMAIN\username'"
+    Write-Host ""
     exit 1
 }
 
+# Validate SQL Authentication
 if ($SqlAuth -eq "sql") {
     if (-not $SqlUser -or -not $SqlPassword) {
-        Write-Host "ERROR: SQLSERVER_USER and SQLSERVER_PASSWORD required for SQL authentication" -ForegroundColor Red
+        Write-Status "ERROR: SQL authentication requires SQLSERVER_USER and SQLSERVER_PASSWORD" "ERROR"
         exit 1
     }
 }
 
+# Validate and setup Windows/AD Authentication
+if ($SqlAuth -eq "windows") {
+    Write-Status "Setting up Windows/Active Directory authentication..." "INFO"
+
+    # Get current user if no AD user specified
+    if (-not $AdUser) {
+        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $AdUser = $currentUser.Name
+        Write-Status "Using current user: $AdUser" "INFO"
+    }
+
+    # Validate AD user exists
+    try {
+        $adUserObj = [System.Security.Principal.NTAccount]::new($AdUser)
+        $sid = $adUserObj.Translate([System.Security.Principal.SecurityIdentifier])
+        Write-Status "AD user validated: $AdUser" "SUCCESS"
+    }
+    catch {
+        Write-Status "ERROR: Could not validate AD user: $AdUser" "ERROR"
+        Write-Status "Make sure the user exists and is in correct format (DOMAIN\username or user@domain.com)" "WARNING"
+        exit 1
+    }
+
+    # For Windows auth, don't use username/password in environment variables
+    $SqlUser = ""
+    $SqlPassword = ""
+}
+
 # Set environment variables
-Write-Host "Configuring SQL Server connection..." -ForegroundColor Cyan
+Write-Status "Configuring connection..." "INFO"
 $env:SQLSERVER_HOST = $SqlHost
 $env:SQLSERVER_PORT = $SqlPort
 $env:SQLSERVER_DATABASE = $SqlDatabase
 $env:SQLSERVER_AUTH = $SqlAuth
-$env:SQLSERVER_USER = $SqlUser
-$env:SQLSERVER_PASSWORD = $SqlPassword
+
+if ($SqlAuth -eq "sql") {
+    $env:SQLSERVER_USER = $SqlUser
+    $env:SQLSERVER_PASSWORD = $SqlPassword
+}
 
 # Display configuration
 Write-Host ""
-Write-Host "Server Configuration:" -ForegroundColor Green
-Write-Host "   Host: $SqlHost"
-Write-Host "   Port: $SqlPort"
-Write-Host "   Database: $(if ($SqlDatabase) { $SqlDatabase } else { '(default)' })"
-Write-Host "   Auth: $SqlAuth"
-Write-Host "   User: $(if ($SqlUser) { $SqlUser } else { '(Windows)' })"
-Write-Host ""
+Write-Status "Connection Configuration:" "INFO"
+Write-Host "  Server: $SqlHost"
+Write-Host "  Port: $SqlPort"
+Write-Host "  Database: $(if ($SqlDatabase) { $SqlDatabase } else { '(default)' })"
+Write-Host "  Authentication: $SqlAuth"
 
-# Build and start
-Write-Host "Building TypeScript..." -ForegroundColor Cyan
-npm run build
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Build failed" -ForegroundColor Red
-    exit 1
+if ($SqlAuth -eq "sql") {
+    Write-Host "  User: $SqlUser"
+}
+else {
+    Write-Host "  User: $AdUser (Windows/AD)"
 }
 
 Write-Host ""
-Write-Host "Starting MCP SQL Server..." -ForegroundColor Green
+
+# Build TypeScript
+Write-Status "Building TypeScript..." "INFO"
+npm run build 2>&1 | ForEach-Object {
+    if ($_ -match "error") {
+        Write-Status $_ "ERROR"
+    }
+}
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Status "Build failed" "ERROR"
+    exit 1
+}
+
+Write-Status "Build successful" "SUCCESS"
+Write-Host ""
+
+# Start server
+Write-Status "Starting MCP SQL Server..." "SUCCESS"
 Write-Host "Press Ctrl+C to stop" -ForegroundColor Yellow
 Write-Host ""
 
 npm start
 
 Write-Host ""
-Write-Host "Server stopped" -ForegroundColor Yellow
+Write-Status "Server stopped" "WARNING"
