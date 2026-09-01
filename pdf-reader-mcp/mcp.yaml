@@ -1,0 +1,51 @@
+# Docker MCP Toolkit catalog manifest for pdf-reader-mcp (Citra).
+#
+# This is a Docker MCP Toolkit "registry" file (the format the Toolkit CLI
+# actually reads — verified against the installed `docker mcp` CLI on this
+# machine). putty-mcp has its own equivalent manifest at
+# ../putty-mcp/mcp.yaml; both are registered together into a single
+# "uqac-mcp-catalog:latest" catalog (one catalog, two servers) rather than
+# one catalog per server. To (re)register:
+#
+#   1. Build the image:
+#        docker build -t pdf-reader-mcp:latest .
+#
+#   2. Copy this file (and putty-mcp's) into the directory the Toolkit
+#      resolves file:// refs against — it cannot read manifests directly
+#      from the project repos:
+#        cp mcp.yaml "$HOME/.docker/mcp/catalogs/pdf-reader-mcp.yaml"
+#        cp ../putty-mcp/mcp.yaml "$HOME/.docker/mcp/catalogs/putty-mcp.yaml"
+#
+#   3. Create (or refresh) the shared catalog from both manifests:
+#        docker mcp catalog create uqac-mcp-catalog:latest \
+#          --title "UQAC MCP Catalog" \
+#          --server file://pdf-reader-mcp.yaml \
+#          --server file://putty-mcp.yaml
+#
+#   4. Point a client at it, e.g.:
+#        docker mcp client connect claude-code --global
+#      or run the gateway directly against this catalog:
+#        docker mcp gateway run --catalog uqac-mcp-catalog:latest --servers pdf-reader-mcp,putty-mcp
+#
+# Before editing the `volumes` entry below, replace the host path with the
+# folder on your machine that holds the PDFs you want the agent to read.
+registry:
+  pdf-reader-mcp:
+    description: >-
+      Citra — PDF evidence for agents. Local-first structured text, tables,
+      OCR, visual evidence, and citations via MCP.
+    title: PDF Reader MCP (Citra)
+    type: server
+    image: pdf-reader-mcp:latest
+    volumes:
+      # Read-only mount of the documents you want the server to be able to
+      # read. Defaults to this repo's own documents/ folder — point it at
+      # any other absolute host path if you'd rather serve PDFs from there.
+      - "D:/github/MCP/pdf-reader-mcp/documents:/documents:ro"
+    env:
+      - name: MCP_PDF_ALLOWED_DIRS
+        value: /documents
+    # No secrets are required for this server. MCP_API_KEY (see the compose.yaml
+    # HTTP deployment) only guards the standalone Streamable HTTP transport and
+    # is never consulted on the stdio transport the Gateway uses to run this
+    # image, so no docker mcp secret set commands are needed here.

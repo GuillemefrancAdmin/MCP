@@ -1,0 +1,183 @@
+name: CI
+
+on:
+  merge_group:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Least privilege for GITHUB_TOKEN (CodeQL actions/missing-workflow-permissions).
+permissions:
+  contents: read
+
+concurrency:
+  # Fast Trunk: supersede obsolete runs for the same PR or branch tip.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Code Quality
+    runs-on: [self-hosted, sylphx-linux-standard]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate GitHub Actions workflows
+        run: bash scripts/check-github-actions.sh
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+
+      - name: Install dependencies
+        run: |
+          # Dependabot doesn't update bun.lock, so we can't use --frozen-lockfile for its PRs
+          if [[ "${{ github.actor }}" == "dependabot[bot]" ]]; then
+            bun install
+          else
+            bun install --frozen-lockfile
+          fi
+
+      - name: Check Code Quality (Biome)
+        run: bun run check
+
+      - name: Forbid GitHub-hosted macOS product runners
+        run: bun run check:no-github-hosted-macos
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Audit Rust dependencies
+        run: bash scripts/check-cargo-advisories.sh
+
+      - name: Build Rust core and MCP server
+        run: bun run build:rust
+
+      - name: Rust core tests
+        run: bun run test:rust
+
+      - name: Build package
+        run: bun run build:test
+
+      - name: Verify package tarball
+        run: bun run package:smoke
+
+      - name: Run Tests and Check Coverage
+        run: bun run test:cov
+
+      - name: Build docs
+        run: bun run docs:build
+
+      - name: Detect coverage reports
+        id: coverage
+        shell: bash
+        run: |
+          if [[ -d coverage ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ -f coverage/lcov.info ]]; then
+            echo "lcov=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "lcov=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if compgen -G "coverage/*.xml" > /dev/null; then
+            echo "test_results=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "test_results=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() && steps.coverage.outputs.lcov == 'true' }}
+        continue-on-error: true
+        uses: codecov/codecov-action@v6.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && steps.coverage.outputs.test_results == 'true' }}
+        continue-on-error: true
+        uses: codecov/codecov-action@v6.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/*.xml
+          report_type: test_results
+          fail_ci_if_error: false
+
+      - name: Upload coverage reports
+        if: ${{ !cancelled() && steps.coverage.outputs.available == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage/
+
+  security-secrets:
+    name: security:secrets
+    runs-on: [self-hosted, sylphx-linux-standard]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history for the new-commit range
+      - name: Secret scan (ADR-6 security:secrets)
+        uses: SylphxAI/.github/.github/actions/secret-scan@main
+
+  release-evidence:
+    name: Release Evidence Gate
+    runs-on: sylphx-linux-standard
+    needs: validate
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install provider certification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng
+          tesseract --version
+          rustc --version
+          cargo --version
+
+      - name: Build strict release benchmark artifacts
+        env:
+          MCP_PDF_OCR_PRESET: tesseract-tsv
+          MCP_PDF_REGION_ANALYSIS_COMMAND: bun
+          MCP_PDF_REGION_ANALYSIS_ARGS_JSON: '["scripts/reference-region-analysis-provider.mjs","{input}","{page}","{region_id}","{languages}"]'
+        run: bun run benchmark:release-artifacts
+
+      - name: Run SOTA release gate
+        env:
+          MCP_PDF_BENCHMARK_OUTPUT_DIR: benchmark-artifacts
+        run: bun run benchmark:release-gate
+
+      - name: Upload release benchmark artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-release-benchmark-artifacts
+          path: benchmark-artifacts/
+          if-no-files-found: error

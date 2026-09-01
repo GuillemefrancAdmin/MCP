@@ -1,0 +1,20 @@
+services:
+  citra:
+    build:
+      context: .
+    image: sylphx/citra:local
+    ports:
+      - "3000:3000"
+    environment:
+      MCP_TRANSPORT: http
+      MCP_API_KEY: ${MCP_API_KEY:?Set MCP_API_KEY before starting Citra.}
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-localhost,127.0.0.1}
+    volumes:
+      - ./documents:/documents:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:3000/mcp/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped

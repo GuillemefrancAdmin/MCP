@@ -1,0 +1,51 @@
+# Docker MCP Toolkit catalog manifest for putty-mcp.
+#
+# This is a Docker MCP Toolkit "registry" file (the format the Toolkit CLI
+# actually reads — verified against the installed `docker mcp` CLI on this
+# machine). pdf-reader-mcp has its own equivalent manifest at
+# ../pdf-reader-mcp/mcp.yaml; both are registered together into a single
+# "uqac-mcp-catalog:latest" catalog (one catalog, two servers) rather than
+# one catalog per server. To (re)register:
+#
+#   1. Build the image:
+#        docker build -t putty-mcp:latest .
+#
+#   2. Copy this file (and pdf-reader-mcp's) into the directory the Toolkit
+#      resolves file:// refs against — it cannot read manifests directly
+#      from the project repos:
+#        cp mcp.yaml "$HOME/.docker/mcp/catalogs/putty-mcp.yaml"
+#        cp ../pdf-reader-mcp/mcp.yaml "$HOME/.docker/mcp/catalogs/pdf-reader-mcp.yaml"
+#
+#   3. Create (or refresh) the shared catalog from both manifests:
+#        docker mcp catalog create uqac-mcp-catalog:latest \
+#          --title "UQAC MCP Catalog" \
+#          --server file://pdf-reader-mcp.yaml \
+#          --server file://putty-mcp.yaml
+#
+#   4. Point a client at it, e.g.:
+#        docker mcp client connect claude-code --global
+#      or run the gateway directly against this catalog:
+#        docker mcp gateway run --catalog uqac-mcp-catalog:latest --servers pdf-reader-mcp,putty-mcp
+#
+# Note: the container uses Linux putty-tools, so GUI launch and Windows
+# Registry saved-session tools are unavailable here (see README's "Known
+# Limitations"); SSH/SCP/SFTP/key/session tools work normally.
+registry:
+  putty-mcp:
+    description: >-
+      Full PuTTY toolchain (SSH, SCP, SFTP, key management, persistent
+      sessions) exposed as MCP tools.
+    title: PuTTY MCP
+    type: server
+    image: putty-mcp:latest
+    volumes:
+      # Optional persistent scratch space (e.g. for keys the agent generates
+      # with keygen_create and session artifacts). Defaults to this repo's
+      # own (gitignored) data/ and keys/ folders — point these at any other
+      # absolute host path, or drop the lines if you don't need persistence.
+      - "D:/github/MCP/putty-mcp/data:/data:rw"
+      - "D:/github/MCP/putty-mcp/keys:/keys:rw"
+    # No secrets are required: SSH/host credentials are passed per tool call
+    # by the calling agent and are never persisted by the server (see
+    # README "Security"), so there is nothing to register with
+    # `docker mcp secret set` for this server.

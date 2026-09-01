@@ -1,0 +1,12 @@
+services:
+  putty-mcp:
+    build: .
+    image: putty-mcp:latest
+    container_name: putty-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      PUTTY_MCP_TRANSPORT: streamable-http
+      PUTTY_MCP_HOST: 0.0.0.0
+      PUTTY_MCP_PORT: "8000"
+    restart: unless-stopped

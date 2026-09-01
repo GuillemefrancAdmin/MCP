@@ -1,0 +1,35 @@
+node_modules/
+target/
+bin/native/*
+!bin/native/.gitkeep
+build/
+*.log
+coverage/
+.env*
+
+# VitePress
+docs/.vitepress/cache
+docs/.vitepress/dist
+
+# Test Reports
+test-report.junit.xml
+.vercel
+
+# Local page-cache artifacts from Rust text-index tests
+**/.pdf-reader-mcp/
+dist/pdf.worker*.mjs
+
+# staged native packaging outputs (never commit host binaries)
+bin/native/**/pdf-reader-mcp-server
+bin/native/**/pdf-reader-mcp-server.exe
+bin/native/pdf-reader-mcp-server
+packages/**/bin/pdf-reader-mcp-server
+packages/**/bin/pdf-reader-mcp-server.exe
+
+# same-host A/B working trees (never commit installs)
+benchmark-artifacts/same-host-ab/ts-lkg-install/
+benchmark-artifacts/same-host-ab/per-fixture/
+
+# durable perf raw samples can be large; summaries live under verification/
+verification/perf/raw/
+*.tgz

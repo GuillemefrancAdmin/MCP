@@ -1,0 +1,12 @@
+[putty]
+# Linux containers cannot access the Windows PuTTY Registry.
+enable_registry = false
+
+[defaults]
+protocol = "ssh"
+port = 22
+
+[sessions]
+max_concurrent = 10
+timeout_seconds = 3600
+buffer_lines = 1000

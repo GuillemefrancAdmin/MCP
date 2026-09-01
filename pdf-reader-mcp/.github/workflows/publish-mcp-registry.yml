@@ -1,0 +1,149 @@
+name: Publish to MCP Registry
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 3.2.2). Defaults to package.json version.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish MCP Registry metadata
+    runs-on: sylphx-linux-standard
+    steps:
+      - name: Checkout admission policy
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+
+      - name: Enforce verified-candidate admission
+        run: bun scripts/check-verified-candidate-admission.ts --require-exact-head
+
+      - name: Install pinned mcp-publisher
+        run: |
+          set -euo pipefail
+          PUBLISHER_VERSION='v1.8.1'
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64)
+              ASSET='mcp-publisher_linux_amd64.tar.gz'
+              SHA256='a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc'
+              ;;
+            Linux-aarch64|Linux-arm64)
+              ASSET='mcp-publisher_linux_arm64.tar.gz'
+              SHA256='8dd75a6cf6845688b5d4e46df58d3ca26d5c8d233bb0626606e1db82c5e883e4'
+              ;;
+            *)
+              echo "Unsupported publisher host: $(uname -s)-$(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          ARCHIVE="$RUNNER_TEMP/$ASSET"
+          curl --proto '=https' --tlsv1.2 -fsSLo "$ARCHIVE" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/${ASSET}"
+          echo "$SHA256  $ARCHIVE" | sha256sum -c -
+          tar -xzf "$ARCHIVE" mcp-publisher
+
+      - name: Verify source and npm versions
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+            if [[ -z "$VERSION" ]]; then
+              VERSION="$(jq -r .version package.json)"
+            fi
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
+          test "$(jq -r .version package.json)" = "$VERSION"
+          test "$(jq -r .version server.json)" = "$VERSION"
+          test "$(jq -r '.packages[0].version' server.json)" = "$VERSION"
+          test "$(jq -r '.packages[0].identifier' server.json)" = '@sylphx/citra'
+          test "$(npm view "@sylphx/citra@$VERSION" version)" = "$VERSION"
+          while IFS= read -r package_name; do
+            test "$(npm view "${package_name}@${VERSION}" version)" = "$VERSION"
+          done < <(jq -r '.optionalDependencies | keys[]' package.json)
+          echo "Publishing source-bound MCP Registry metadata for version=$VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Validate server.json
+        run: ./mcp-publisher validate
+
+      - name: Check canonical registry state
+        id: canonical-state
+        run: |
+          set -euo pipefail
+          URL='https://registry.modelcontextprotocol.io/v0.1/servers/io.github.SylphxAI%2Fcitra/versions/latest'
+          if curl -fsS "$URL" > "$RUNNER_TEMP/citra-before.json" && \
+            jq -e --arg version "$VERSION" \
+              '.server.name == "io.github.SylphxAI/citra" and .server.version == $version and .server.packages[0].identifier == "@sylphx/citra" and .server.packages[0].version == $version' \
+              "$RUNNER_TEMP/citra-before.json" >/dev/null; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+            echo "status=$(jq -r '._meta[\"io.modelcontextprotocol.registry/official\"].status' "$RUNNER_TEMP/citra-before.json")" >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+            echo 'status=missing' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Restore canonical active status
+        if: ${{ steps.canonical-state.outputs.exists == 'true' && steps.canonical-state.outputs.status != 'active' }}
+        run: |
+          ./mcp-publisher status --status active io.github.SylphxAI/citra "$VERSION"
+
+      - name: Publish server to MCP Registry
+        if: ${{ steps.canonical-state.outputs.exists != 'true' }}
+        run: ./mcp-publisher publish
+
+      - name: Read back canonical Citra identity
+        run: |
+          set -euo pipefail
+          URL='https://registry.modelcontextprotocol.io/v0.1/servers/io.github.SylphxAI%2Fcitra/versions/latest'
+          for attempt in $(seq 1 36); do
+            if curl -fsS "$URL" > "$RUNNER_TEMP/citra-registry.json" && \
+              jq -e --arg version "$VERSION" \
+                '.server.name == "io.github.SylphxAI/citra" and .server.version == $version and .server.packages[0].identifier == "@sylphx/citra" and .server.packages[0].version == $version and ._meta["io.modelcontextprotocol.registry/official"].status == "active"' \
+                "$RUNNER_TEMP/citra-registry.json" >/dev/null; then
+              cat "$RUNNER_TEMP/citra-registry.json"
+              exit 0
+            fi
+            echo "MCP Registry readback wait $attempt for Citra $VERSION"
+            sleep 5
+          done
+          echo "Canonical Citra registry readback failed" >&2
+          exit 1
+
+      - name: Deprecate retired MCP Registry identity
+        run: |
+          set -euo pipefail
+          ./mcp-publisher status \
+            --status deprecated \
+            --all-versions \
+            --message 'Retired identity. Use io.github.SylphxAI/citra.' \
+            io.github.SylphxAI/pdf-reader-mcp
+          URL='https://registry.modelcontextprotocol.io/v0.1/servers/io.github.SylphxAI%2Fpdf-reader-mcp/versions/latest'
+          for attempt in $(seq 1 24); do
+            if curl -fsS "$URL" > "$RUNNER_TEMP/retired-registry.json" && \
+              jq -e '._meta["io.modelcontextprotocol.registry/official"].status == "deprecated"' \
+                "$RUNNER_TEMP/retired-registry.json" >/dev/null; then
+              cat "$RUNNER_TEMP/retired-registry.json"
+              exit 0
+            fi
+            echo "MCP Registry deprecation readback wait $attempt"
+            sleep 5
+          done
+          echo "Retired registry identity deprecation readback failed" >&2
+          exit 1

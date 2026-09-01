@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.py[cod]
+*.egg-info
+keys
+data
+config.toml
+*.log
+.env
+.mcp.json
+.claude
+mcp.yaml
+README.md
+LICENSE

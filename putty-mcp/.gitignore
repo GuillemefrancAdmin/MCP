@@ -1,0 +1,34 @@
+# Keys - never commit
+keys/
+*.ppk
+*.pem
+*.key
+
+# Local scratch volume for the Docker MCP Gateway mount (docker mcp)
+data/
+
+# Config (may contain local paths)
+config.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# PuTTY decompiled help (large, regenerable)
+help_decompiled/
+
+# Environment
+.env
+
+# Project notes (local-specific)
+CLAUDE.md
+
+# Logs
+*.log
+
+# OS
+nul
+Thumbs.db
+Desktop.ini

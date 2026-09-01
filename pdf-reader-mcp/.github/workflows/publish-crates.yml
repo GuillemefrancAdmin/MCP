@@ -1,0 +1,94 @@
+# Publish pure-Rust crates to crates.io (pdf-reader-core, citra-mcp-server, pdf-reader-cli).
+name: Publish crates.io
+
+# Crates are not an admitted product distribution channel for 3.2.x.
+# npm + native optional packages are the supported install path. Do not publish until versions are aligned to the npm product line and admission passes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "PUBLISH FREEZE — type I_UNDERSTAND_USER_IMPACT to publish crates"
+        required: true
+        default: ""
+      dry_run:
+        description: "If true, cargo publish --dry-run only"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: sylphx-linux-standard
+    if: ${{ github.event.inputs.confirm == 'I_UNDERSTAND_USER_IMPACT' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install bun (for optional differential oracle tests)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Enforce crates non-product-channel gate
+        run: |
+          echo "crates.io is not an admitted product distribution channel for pdf-reader-mcp 3.2.x."
+          echo "Primary product path: npm @sylphx/citra + optional native packages."
+          echo "Refuse crates publish until an explicit ADR admits crates and versions match npm."
+          exit 1
+
+      - name: Cargo test crates (unit + golden; differential when bun present)
+        run: |
+          set -euo pipefail
+          cargo test -p pdf-reader-core
+          cargo test -p pdf-reader-cli
+          cargo test -p pdf-reader-mcp-server --lib
+          cargo test -p pdf-reader-mcp-server --test read_pdf_golden_parity
+          # Differential needs bun + TS oracle; skip hard-fail if bun path missing in env.
+          cargo test -p pdf-reader-mcp-server --test pdf_reader_mcp_differential || {
+            echo "differential oracle test failed — re-run with bun available"
+            exit 1
+          }
+
+      - name: Publish pdf-reader-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            cargo publish -p pdf-reader-core --dry-run
+          else
+            cargo publish -p pdf-reader-core
+          fi
+
+      - name: Publish citra-mcp-server
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            cargo publish -p pdf-reader-mcp-server --dry-run
+          else
+            # Wait for crates.io index to pick up core.
+            sleep 45
+            cargo publish -p pdf-reader-mcp-server
+          fi
+
+      - name: Publish pdf-reader-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            cargo publish -p pdf-reader-cli --dry-run
+          else
+            sleep 45
+            cargo publish -p pdf-reader-cli
+          fi

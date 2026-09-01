@@ -1,0 +1,30 @@
+node_modules/
+dist/
+coverage/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+.git/
+*.log
+.env
+.env.*
+bun.lock
+
+# Rust build cache — not needed in the build context, huge if present locally
+target/
+
+# Not needed by the Dockerfile (it only COPYs Cargo.toml/Cargo.lock/crates/vendor)
+docs/
+examples/
+corpus/
+documents/
+benchmark-artifacts/
+verification/
+test/
+templates/
+skills/
+public/
+.agents/
+.changeset/
+.claude/
+.github/
+.opencode/
