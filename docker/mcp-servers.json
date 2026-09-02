@@ -1,0 +1,111 @@
+{
+  "servers": [
+    {
+      "id": "pdf-reader-mcp",
+      "name": "PDF Reader MCP",
+      "description": "Citra - PDF evidence provider for agents. Provides tools for reading, analyzing, and extracting structured text, tables, OCR, visual evidence, and citations from PDF documents.",
+      "version": "5.0.1",
+      "category": "document-processing",
+      "transport": "http",
+      "host": "localhost",
+      "port": 3000,
+      "basePath": "/mcp",
+      "healthCheckEndpoint": "/health",
+      "tools": [
+        {
+          "name": "read_pdf",
+          "description": "Read and extract text, tables, and structured content from PDF files",
+          "enabled": true
+        },
+        {
+          "name": "search_pdf",
+          "description": "Search for text or patterns within PDF documents",
+          "enabled": true
+        },
+        {
+          "name": "analyze_pdf",
+          "description": "Analyze PDF structure, metadata, and content intelligence",
+          "enabled": true
+        },
+        {
+          "name": "extract_tables",
+          "description": "Extract tables from PDF documents with proper formatting",
+          "enabled": true
+        },
+        {
+          "name": "ocr_pdf",
+          "description": "Perform OCR on PDF pages to extract text from scanned documents",
+          "enabled": true
+        },
+        {
+          "name": "get_pdf_metadata",
+          "description": "Get metadata information about PDF documents",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "putty-mcp",
+      "name": "PuTTY MCP",
+      "description": "SSH and terminal session management for remote connections. Provides tools for creating SSH sessions, executing commands, managing PuTTY saved sessions, and file transfers via PSCP/PSFTP.",
+      "version": "1.0.0",
+      "category": "ssh-terminal",
+      "transport": "streamable-http",
+      "host": "localhost",
+      "port": 8000,
+      "basePath": "/mcp",
+      "tools": [
+        {
+          "name": "session_open",
+          "description": "Open a new SSH session or PuTTY saved session",
+          "enabled": true
+        },
+        {
+          "name": "session_close",
+          "description": "Close an active SSH session",
+          "enabled": true
+        },
+        {
+          "name": "session_send",
+          "description": "Send commands to an active session",
+          "enabled": true
+        },
+        {
+          "name": "session_read",
+          "description": "Read output from an active session",
+          "enabled": true
+        },
+        {
+          "name": "plink_exec",
+          "description": "Execute commands via PLink (PuTTY command-line tool)",
+          "enabled": true
+        },
+        {
+          "name": "pscp_upload",
+          "description": "Upload files via PSCP (PuTTY SCP)",
+          "enabled": true
+        },
+        {
+          "name": "pscp_download",
+          "description": "Download files via PSCP (PuTTY SCP)",
+          "enabled": true
+        },
+        {
+          "name": "psftp_batch",
+          "description": "Execute batch SFTP operations",
+          "enabled": true
+        },
+        {
+          "name": "saved_session_list",
+          "description": "List available PuTTY saved sessions",
+          "enabled": true
+        },
+        {
+          "name": "saved_session_open",
+          "description": "Open a saved PuTTY session",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

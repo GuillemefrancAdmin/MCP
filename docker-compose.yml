@@ -1,0 +1,76 @@
+version: '3.8'
+
+# NOTE: This compose file is maintained for reference but is NOT used with
+# Docker MCP Gateway. The Gateway uses stdio mode and executes containers
+# directly from the Docker MCP Toolkit catalog (mcp.yaml files).
+#
+# For Docker MCP Gateway (RECOMMENDED):
+#   docker mcp gateway run --catalog uqac-mcp-catalog:latest \
+#     --servers pdf-reader-mcp,putty-mcp
+#
+# For standalone HTTP servers only (if you need independent containers):
+# Uncomment the HTTP configuration below and use docker-compose as normal.
+
+services:
+  # PDF Reader MCP (Citra) - PDF evidence provider for agents
+  #
+  # STDIO Mode (for Docker MCP Gateway):
+  # - MCP_TRANSPORT is NOT set (defaults to stdio)
+  # - No ports exposed (Gateway uses stdin/stdout)
+  # - Volumes configured for PDF document access
+  # - No API key needed (Gateway internal communication)
+  #
+  pdf-reader:
+    build:
+      context: ./pdf-reader-mcp
+    image: pdf-reader-mcp:latest
+    container_name: pdf-reader-mcp
+    ports:
+      - "3000:3000"
+    environment:
+      MCP_TRANSPORT: http
+      MCP_API_KEY: "dev-key-pdf-reader"
+      MCP_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      MCP_PDF_ALLOWED_DIRS: /documents
+    volumes:
+      - ./pdf-reader-mcp/documents:/documents:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:3000/mcp/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+  # PuTTY MCP - SSH/Session management
+  #
+  # STDIO Mode (for Docker MCP Gateway):
+  # - PUTTY_MCP_TRANSPORT is NOT set (defaults to stdio)
+  # - No ports exposed (Gateway uses stdin/stdout)
+  # - Volumes configured for persistent data/keys
+  #
+  putty-mcp:
+    build:
+      context: ./putty-mcp
+    image: putty-mcp:latest
+    container_name: putty-mcp-server
+    ports:
+      - "8000:8000"
+    environment:
+      PUTTY_MCP_TRANSPORT: streamable-http
+      PUTTY_MCP_HOST: 0.0.0.0
+      PUTTY_MCP_PORT: "8000"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERABLE: "1"
+    volumes:
+      - ./putty-mcp/data:/data:rw
+      - ./putty-mcp/keys:/keys:rw
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge
